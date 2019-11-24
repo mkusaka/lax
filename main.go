@@ -8,12 +8,18 @@ import (
 	"time"
 
 	"github.com/mkusaka/lax/client"
+	"golang.org/x/net/http2"
 )
 
 func main() {
+	httpServer := http.Server{
+		Addr: ":300",
+	}
+	http2Server := http2.Server{}
+	_ = http2.ConfigureServer(&httpServer, &http2Server)
 	http.Handle("/", http.HandlerFunc(proxyHander))
 	fmt.Println("served at http://localhost:300")
-	http.ListenAndServe(":300", nil)
+	log.Fatal(httpServer.ListenAndServe())
 }
 
 func proxyHander(w http.ResponseWriter, r *http.Request) {

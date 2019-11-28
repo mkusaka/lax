@@ -43,6 +43,19 @@ func NewClient(timeout time.Duration) *Client {
 	}
 }
 
+type Customer struct {
+	ID primitive.ObjectID `json:"_id,omitempty"`
+	// make this field configable for make another manage server from official.
+	PrimaryCustomerID string `json:"primary_customer_id"`
+}
+
+type Config struct {
+	ID         primitive.ObjectID `json:"_id,omitempty"`
+	CustomerID primitive.ObjectID `json:"customer_id"`
+	ProxyURL   string             `json:"proxy_url"`
+	OriginURL  string             `json:"origin_url"`
+}
+
 type CacheMeta struct {
 	ID       primitive.ObjectID `json:"_id,omitempty"`
 	EntityID primitive.ObjectID `json:"entity_id"`

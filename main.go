@@ -11,6 +11,7 @@ import (
 )
 
 func main() {
+	// TODO: serve via H2
 	http.Handle("/", http.HandlerFunc(proxyHander))
 	fmt.Println("served at http://localhost:300")
 	http.ListenAndServe(":300", nil)
@@ -25,8 +26,6 @@ func proxyHander(w http.ResponseWriter, r *http.Request) {
 		// TODO: error handling. add retry function
 		log.Fatal(err)
 	}
-
-	defer res.Body.Close()
 
 	// res.Header returns map[string][]string
 	// TODO: following code valid? (write all header from origin server to response from proxy server)

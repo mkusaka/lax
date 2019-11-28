@@ -28,21 +28,31 @@ func NewClient(timeoutSecond time.Duration) *Client {
 func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
 	// TODO: get replacement correspondence from db
 	// URL.String not returns valid url...?
-	fullPath := extractUrl(request)
-	newUrl := strings.Replace(fullPath, ":300", ":3000", 1)
-	fmt.Printf("proxy url: %s \n", newUrl)
+	requestURL := extractURL(request)
+	// fetch replace correspondence & settings (like key element, expire configure etc...) from db
+	// TODO: fetch correspondence & cache at once?
+	proxyURL := strings.Replace(requestURL, ":300", ":3000", 1)
+	// fetch cache from db. key: proxyURL/method/vary header or something user defined
+	// if cache exists & not error response, construct http.response & return it.
 
-	req, err := http.NewRequest(request.Method, newUrl, request.Body)
+	fmt.Printf("proxy url: %s \n", proxyURL)
+
+	req, err := http.NewRequest(request.Method, proxyURL, request.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header = request.Header
 
-	return c.client.Do(req)
+	res, err := c.client.Do(req)
+
+	// store response to db.
+	// but not store PUT/POST/DELETE by default. user wil configable cache path.
+
+	return res, err
 }
 
-func extractUrl(request *http.Request) string {
+func extractURL(request *http.Request) string {
 	host := request.Host
 	path := request.RequestURI
 	schema := "http"

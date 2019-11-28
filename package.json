@@ -1,0 +1,11 @@
+{
+  "name": "lax",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/mkusaka/lax.git",
+  "author": "mkusaka <hinoshita1992@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "json-server": "^0.15.1"
+  }
+}

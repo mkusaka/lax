@@ -2,9 +2,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -28,7 +31,7 @@ func NewClient(timeout time.Duration) *Client {
 	ctx, _ := context.WithTimeout(context.Background(), contextTimeout)
 
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(
-		"mongodb://localhost:27017?w=majority",
+		"mongodb://localhost:27017",
 	))
 
 	if err != nil {
@@ -43,24 +46,222 @@ func NewClient(timeout time.Duration) *Client {
 	}
 }
 
-type Customer struct {
-	ID primitive.ObjectID `json:"_id,omitempty"`
-	// make this field configable for make another manage server from official.
-	PrimaryCustomerID string `json:"primary_customer_id"`
+// TODO: create indices
+// DISCUSS: should we
+type TimeMeta struct {
+	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
 
+func NewTimeMeta() *TimeMeta {
+	now := time.Now()
+	return &TimeMeta{
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+}
+
+type Customer struct {
+	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	TimeMeta TimeMeta           `bson:"time_meta" json:"time_meta"`
+
+	// for primary server pluggable, this field just declare as string.
+	PrimaryCustomerID string `bson:"primary_customer_id" json:"primary_customer_id"`
+}
+
+func (c *Client) NewCustomer(primaryCustomerID string) (*mongo.InsertOneResult, error) {
+	customer := Customer{
+		ID:                primitive.NewObjectID(),
+		PrimaryCustomerID: primaryCustomerID,
+		TimeMeta:          *NewTimeMeta(),
+	}
+	return c.database.Collection("customer").InsertOne(c.defaultContext, customer)
+}
+
+// TODO: implement upsert
+// this method may not needed
+func (c *Client) UpdateCustomer(primaryCustomerID string, updatePrimaryCustomerID string) (*mongo.UpdateResult, error) {
+	filter := bson.M{"primary_customer_id": primaryCustomerID}
+	update := bson.M{
+		"$set": bson.M{
+			"primary_customer_id": updatePrimaryCustomerID,
+			"time_meta":           bson.M{"updated_at": time.Now()},
+		},
+	}
+	return c.database.Collection("customer").UpdateOne(c.defaultContext, filter, update)
+}
+
+func (c *Client) DeleteCustomer(primaryCustomerID string) (*mongo.DeleteResult, error) {
+	filter := bson.M{"primary_customer_id": primaryCustomerID}
+	return c.database.Collection("customer").DeleteOne(c.defaultContext, filter)
+}
+
+func (c *Client) GetCustomer(primaryCustomerID string) Customer {
+	var customer Customer
+	filter := bson.M{"primary_customer_id": primaryCustomerID}
+	result := c.database.Collection("customer").FindOne(c.defaultContext, filter)
+	result.Decode(&customer)
+	return customer
+}
+
+type CacheKeyConfig struct {
+	HeaderKeys []string `bson:"header_keys" json:"header_keys"` // key
+	UseURL     bool     `bson:"use_url" json:"use_url"`         // use url or not
+}
+
+func NewCacheKeyConfig(headerKeys []string, useURL bool) *CacheKeyConfig {
+	return &CacheKeyConfig{
+		HeaderKeys: headerKeys,
+		UseURL:     useURL,
+	}
+}
+
+// url proxy rule. if request path matches priority high Matcher, then proxy to Priority.
+// Marcher support only all matcher suffix like foo/bar/* matches under foo/bar/ path.
+type Rule struct {
+	Macher    string `bson:"macher" json:"macher"`
+	Matched   string `bson:"mached" json:"matched"`
+	Priority  int    `bson:"priority" json:"priority"`
+	IsDefault bool   `bson:"is_default" json:"is_default"`
+}
+
+func IsGeneralPattern(s string) bool {
+	return strings.HasSuffix(s, "*")
+}
+
+func (r *Rule) IsGeneralMatcherPattern() bool {
+	return IsGeneralPattern(r.Macher)
+}
+
+func (r *Rule) IsGenrarlMatchedPattern() bool {
+	return IsGeneralPattern(r.Matched)
+}
+
+// foo/bar/baz/*→ foo/bar/baz/
+// is this process called normalize???
+func NormalizedPath(s string) string {
+	return strings.Replace(s, "*", "", 1)
+}
+
+func (r *Rule) Match(path string) bool {
+	if r.IsGeneralMatcherPattern() {
+		return strings.Contains(path, strings.Replace(r.Macher, "*", "", 1))
+	} else {
+		return strings.Contains(path, r.Macher)
+	}
+}
+
+type ProxyURL = string
+
+// convert path to proxy url as defined rule
+// @example
+//  rule: foo/bar/* → yo/*
+//  path: foo/bar/123/456
+//  returns: yo/123/456
+//  rule: foo/bar/* → yo
+//  path: foo/bar/123/345
+//  returns: yo
+//  rule: foo/bar → yo/* // this is invalid rule. rule can't detect right path.
+func (r *Rule) RuledPath(path string) (ProxyURL, error) {
+	if !r.IsGeneralMatcherPattern() {
+		return r.Matched, nil
+	}
+
+	if r.IsGeneralMatcherPattern() {
+		// path: foo/bar/baz
+		// 1. foo/bar/* → foo/bar/
+		nMatcher := NormalizedPath(r.Macher)
+		// 2. foo/bar/baz → baz
+		nPath := strings.Replace(path, nMatcher, "", 1)
+		// 3. yo/* → yo/
+		nMatched := NormalizedPath(r.Matched)
+		// 4. yo/baz
+		return nMatched + nPath, nil
+	}
+	// in this line, rule has like foo/bar → yo/*. this is invalid pattern. (rule can't detect right path.)
+	return "", errors.New("invalid rule pattern")
+}
+
+func NewRule(macher string, matched string) *Rule {
+	return &Rule{
+		Macher:  macher,
+		Matched: matched,
+	}
+}
+
+type Rules []Rule
+
+// returns priority order desc
+func (r *Rules) HighPriority() Rules {
+	rules := *r
+	sort.Slice(rules, func(i, j int) bool {
+		return rules[i].Priority > rules[j].Priority
+	})
+	return rules
+}
+
+// returns matched rule. if there is no match rule, returns default rule or empty rule struct.
+func (r *Rules) MatchRule(path string) *Rule {
+	sortedRules := r.HighPriority()
+	defaultRule := Rule{}
+	for _, rule := range sortedRules {
+		if rule.Match(path) {
+			return &rule
+		} else if rule.IsDefault {
+			defaultRule = rule
+		}
+	}
+
+	return &defaultRule
+}
+
+func (r *Rules) ProxyPath(path string) (string, error) {
+	return r.MatchRule(path).RuledPath(path)
+}
+
+// create each domain. manage proxy rule via Rule struct.
 type Config struct {
-	ID         primitive.ObjectID `json:"_id,omitempty"`
-	CustomerID primitive.ObjectID `json:"customer_id"`
-	ProxyURL   string             `json:"proxy_url"`
-	OriginURL  string             `json:"origin_url"`
+	ID             primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	TimeMeta       TimeMeta           `bson:"time_meta" json:"time_meta"`
+	CustomerID     primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field index
+	Domain         string             `bson:"domain" json:"domain"`           // TODO: make this field uniq index
+	CacheKeyConfig `bson:"cache_key_config" json:"cache_key_config"`
+	Rules          `bson:"rules" json:"rules"`
+}
+
+func (c *Client) NewConfig(customer *Customer, domain string, cacheKeyConfig *CacheKeyConfig, rules *Rules) *Config {
+	config := Config{
+		ID:             primitive.NewObjectID(),
+		TimeMeta:       *NewTimeMeta(),
+		CustomerID:     customer.ID,
+		Domain:         domain,
+		CacheKeyConfig: *cacheKeyConfig,
+		Rules:          *rules,
+	}
+	return &config
+}
+
+func (c *Client) SaveConfig(config *Config) (*mongo.InsertOneResult, error) {
+	return c.database.Collection("config").InsertOne(c.defaultContext, *config)
+}
+
+func (c *Client) GetConfig(configID primitive.ObjectID) *mongo.SingleResult {
+	filter := bson.M{"_id": configID}
+	return c.database.Collection("config").FindOne(c.defaultContext, filter)
+}
+
+func (c *Client) GetConfigFromDomain(domain string) *mongo.SingleResult {
+	filter := bson.M{"domain": domain}
+	return c.database.Collection("config").FindOne(c.defaultContext, filter)
 }
 
 type CacheMeta struct {
-	ID       primitive.ObjectID `json:"_id,omitempty"`
-	EntityID primitive.ObjectID `json:"entity_id"`
-	CacheKey string             `json:"cache_key"`
-	Expire   time.Time          `json:"expire"`
+	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	TimeMeta TimeMeta           `bson:"time_meta" json:"time_meta"`
+	EntityID primitive.ObjectID `bson:"entity_id" json:"entity_id"`
+	ConfigID primitive.ObjectID `bson:"config_id" json:"config_id"`
+	CacheKey string             `bson:"cache_key" json:"cache_key"`
+	Expire   time.Time          `bson:"expire" json:"expire"` // for stale-if-error control, hold expire time
 }
 
 /**
@@ -90,7 +291,7 @@ type CacheEntity struct {
 func (c *Client) FetchCache(key string) {
 	filter := bson.M{"key": key}
 	// TODO: make model package and use it.
-	c.database.Collection("cacheEntity").FindOne(c.defaultContext, filter)
+	c.database.Collection("cache_entity").FindOne(c.defaultContext, filter)
 }
 
 // you should check expire before cache
@@ -101,7 +302,7 @@ func (c *Client) StoreCache(meta CacheMeta, r *http.Response, expire_at time.Tim
 	entityFilter := bson.M{"_id": entityID}
 	entity := EntityFromResponse(r, entityID)
 	// upsert entity
-	result, err := c.database.Collection("cacheEntity").UpdateOne(c.defaultContext, entityFilter, entity)
+	result, err := c.database.Collection("cache_entity").UpdateOne(c.defaultContext, entityFilter, entity)
 	if err != nil {
 		log.Fatal(err)
 	}

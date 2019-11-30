@@ -30,16 +30,20 @@ func main() {
 			Macher:  "foo/bar/*",
 			Matched: "yo/*",
 		},
+		db.Rule{
+			Macher:  "foo/bar/baz/*",
+			Matched: "yo/*",
+		},
 	}
 
-	createdCacheConfig := conn.NewConfig(&res, "http://foo.bar.baz", &cacheKeyConfig, &rules)
+	createdCacheConfig := conn.NewConfig(&res, "http://foo.bar.baz"+time.Now().String(), &cacheKeyConfig, &rules)
 	savedCacheConfig, err := conn.SaveConfig(createdCacheConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	id := savedCacheConfig.InsertedID.(primitive.ObjectID)
-	stringid := id.String()
+	id := (*savedCacheConfig).InsertedID.(primitive.ObjectID)
+	stringid := id.Hex()
 	convertedID, _ := primitive.ObjectIDFromHex(stringid)
 
 	log.Print("converted")
@@ -51,9 +55,14 @@ func main() {
 
 	rerere.Decode(&config)
 
-	proxyed, err := config.ProxyPath("foo/bar/123")
+	proxyed, err := config.ProxyPath("foo/bar/baz/123")
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Print(proxyed)
+
+	inrule, _ := primitive.ObjectIDFromHex("5de26ad00dd8829f348a59b5")
+	var primite db.Config
+	conn.GetConfig(inrule).Decode(&primite)
+	log.Print(primite)
 }

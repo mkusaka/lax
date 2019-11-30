@@ -232,16 +232,18 @@ type Config struct {
 	TimeMeta       TimeMeta           `bson:"time_meta" json:"time_meta"`
 	CustomerID     primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field index
 	Domain         string             `bson:"domain" json:"domain"`           // TODO: make this field uniq index
+	ProxyDomain    string             `bson:"proxy_domain" json:"proxy_domain"`
 	CacheKeyConfig `bson:"cache_key_config" json:"cache_key_config"`
 	Rules          `bson:"rules" json:"rules"`
 }
 
-func (c *Client) NewConfig(customer *Customer, domain string, cacheKeyConfig *CacheKeyConfig, rules *Rules) *Config {
+func (c *Client) NewConfig(customer *Customer, domain string, proxyDomain string, cacheKeyConfig *CacheKeyConfig, rules *Rules) *Config {
 	config := Config{
 		ID:             primitive.NewObjectID(),
 		TimeMeta:       *NewTimeMeta(),
 		CustomerID:     customer.ID,
 		Domain:         domain,
+		ProxyDomain:    proxyDomain,
 		CacheKeyConfig: *cacheKeyConfig,
 		Rules:          *rules,
 	}
@@ -259,11 +261,14 @@ func (c *Client) GetConfig(configID primitive.ObjectID) *Config {
 	return &config
 }
 
-func (c *Client) GetConfigFromDomain(domain string) *Config {
+func (c *Client) GetConfigFromDomain(domain string) (*Config, error) {
 	filter := bson.M{"domain": domain}
 	var config Config
 	c.database.Collection("config").FindOne(c.defaultContext, filter).Decode(&config)
-	return &config
+	if config.ID == primitive.NilObjectID {
+		return nil, errors.New("not found")
+	}
+	return &config, nil
 }
 
 type CacheMeta struct {

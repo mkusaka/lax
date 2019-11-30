@@ -36,7 +36,7 @@ func main() {
 		},
 	}
 
-	createdCacheConfig := conn.NewConfig(&res, "http://foo.bar.baz"+time.Now().String(), &cacheKeyConfig, &rules)
+	createdCacheConfig := conn.NewConfig(&res, "http://foo.bar.baz"+time.Now().String(), "http://baz.baz.bar", &cacheKeyConfig, &rules)
 	savedCacheConfig, err := conn.SaveConfig(createdCacheConfig)
 	if err != nil {
 		log.Fatal(err)

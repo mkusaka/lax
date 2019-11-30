@@ -1,15 +1,17 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/mkusaka/lax/db"
 )
+
+var dbClient = db.NewClient(1000 * time.Millisecond)
 
 type Client struct {
 	client *http.Client
@@ -28,12 +30,20 @@ func NewClient(timeoutSecond time.Duration) *Client {
 }
 
 func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
-	// TODO: get replacement correspondence from db
 	// URL.String not returns valid url...?
-	requestURL := extractURL(request)
+	config, err := dbClient.GetConfigFromDomain(request.Host)
+	if err == nil {
+		return nil, errors.New("bad request")
+	}
+
+	proxyPath, err := config.ProxyPath(request.RequestURI)
+
+	if err != nil {
+		return nil, errors.New("invalid rule")
+	}
 	// fetch replace correspondence & settings (like key element, expire configure etc...) from db
 	// TODO: fetch correspondence & cache at once?
-	proxyURL := strings.Replace(requestURL, ":300", ":3000", 1)
+	proxyURL := GenerateURL(request, config.ProxyDomain, proxyPath)
 	// fetch cache from db. key: proxyURL/method/vary header or something user defined
 	// if cache exists & not error response, construct http.response & return it.
 
@@ -54,13 +64,11 @@ func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
 	return res, err
 }
 
-func extractURL(request *http.Request) string {
-	host := request.Host
-	path := request.RequestURI
+func GenerateURL(request *http.Request, proxyDomain, proxyPath string) string {
 	schema := "http"
 	if request.TLS != nil {
 		schema = "https"
 	}
 
-	return schema + "://" + host + path
+	return schema + "://" + proxyDomain + proxyPath
 }

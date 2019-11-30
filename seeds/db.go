@@ -49,11 +49,7 @@ func main() {
 	log.Print("converted")
 	log.Print(convertedID)
 
-	rerere := conn.GetConfig(convertedID)
-
-	var config db.Config
-
-	rerere.Decode(&config)
+	config := conn.GetConfig(convertedID)
 
 	proxyed, err := config.ProxyPath("foo/bar/baz/123")
 	if err != nil {
@@ -62,7 +58,5 @@ func main() {
 	log.Print(proxyed)
 
 	inrule, _ := primitive.ObjectIDFromHex("5de26ad00dd8829f348a59b5")
-	var primite db.Config
-	conn.GetConfig(inrule).Decode(&primite)
-	log.Print(primite)
+	log.Print(conn.GetConfig(inrule).ID)
 }

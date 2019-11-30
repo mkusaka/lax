@@ -163,6 +163,10 @@ type ProxyURL = string
 //  returns: yo
 //  rule: foo/bar → yo/* // this is invalid rule. rule can't detect right path.
 func (r *Rule) RuledPath(path string) (ProxyURL, error) {
+	if r.Macher == "" || r.Matched == "" {
+		return "", errors.New("invalid rule pattern")
+	}
+
 	if !r.IsGeneralMatcherPattern() {
 		return r.Matched, nil
 	}
@@ -182,11 +186,14 @@ func (r *Rule) RuledPath(path string) (ProxyURL, error) {
 	return "", errors.New("invalid rule pattern")
 }
 
-func NewRule(macher string, matched string) *Rule {
+func NewRule(macher string, matched string) (*Rule, error) {
+	if macher == "" || matched == "" {
+		return nil, errors.New("invalid rule")
+	}
 	return &Rule{
 		Macher:  macher,
 		Matched: matched,
-	}
+	}, nil
 }
 
 type Rules []Rule
@@ -248,7 +255,7 @@ func (c *Client) SaveConfig(config *Config) (*mongo.InsertOneResult, error) {
 func (c *Client) GetConfig(configID primitive.ObjectID) *Config {
 	filter := bson.M{"_id": configID}
 	var config Config
-	c.database.Collection("config").FindOne(c.defaultContext, filter).Decode(config)
+	c.database.Collection("config").FindOne(c.defaultContext, filter).Decode(&config)
 	return &config
 }
 

@@ -27,16 +27,23 @@ func main() {
 
 	rules := db.Rules{
 		db.Rule{
-			Macher:  "foo/bar/*",
-			Matched: "yo/*",
+			Macher:   "localhost/*",
+			Matched:  "yo/*",
+			Priority: 100,
 		},
 		db.Rule{
-			Macher:  "foo/bar/baz/*",
-			Matched: "yo/*",
+			Macher:   "foo/bar/baz/*",
+			Matched:  "yo/*",
+			Priority: 200,
+		},
+		db.Rule{
+			Macher:   "/posts/*",
+			Matched:  "/posts",
+			Priority: 350,
 		},
 	}
 
-	createdCacheConfig := conn.NewConfig(&res, "http://foo.bar.baz"+time.Now().String(), "http://baz.baz.bar", &cacheKeyConfig, &rules)
+	createdCacheConfig := conn.NewConfig(&res, "localhost:300", "localhost:3000", &cacheKeyConfig, &rules)
 	savedCacheConfig, err := conn.SaveConfig(createdCacheConfig)
 	if err != nil {
 		log.Fatal(err)

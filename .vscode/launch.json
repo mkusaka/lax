@@ -9,7 +9,7 @@
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/examples/db.go",
+      "program": "${workspaceFolder}/main.go",
       "env": {},
       "args": []
     }

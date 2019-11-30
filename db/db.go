@@ -167,7 +167,7 @@ func (r *Rule) RuledPath(path string) (ProxyURL, error) {
 		return "", errors.New("invalid rule pattern")
 	}
 
-	if !r.IsGeneralMatcherPattern() {
+	if !r.IsGenrarlMatchedPattern() {
 		return r.Matched, nil
 	}
 

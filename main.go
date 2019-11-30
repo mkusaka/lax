@@ -12,6 +12,7 @@ import (
 
 func main() {
 	// TODO: serve via H2
+	// TODO: allow auto restart like HUP USR2, or http request like /restart
 	http.Handle("/", http.HandlerFunc(proxyHander))
 	fmt.Println("served at http://localhost:300")
 	http.ListenAndServe(":300", nil)
@@ -19,12 +20,14 @@ func main() {
 
 func proxyHander(w http.ResponseWriter, r *http.Request) {
 	c := client.NewClient(10 * time.Second)
+	// TODO: not ruled pattern makes panic
 	res, err := c.ProxyRequest(r)
 
 	if err != nil {
 		// TODO: log store from worker
 		// TODO: error handling. add retry function
-		log.Fatal(err)
+		// TODO: send error report to primary server
+		http.Error(w, "Bad request, something wrong"+err.Error(), http.StatusBadRequest)
 	}
 
 	// res.Header returns map[string][]string

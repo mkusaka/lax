@@ -245,14 +245,18 @@ func (c *Client) SaveConfig(config *Config) (*mongo.InsertOneResult, error) {
 	return c.database.Collection("config").InsertOne(c.defaultContext, *config)
 }
 
-func (c *Client) GetConfig(configID primitive.ObjectID) *mongo.SingleResult {
+func (c *Client) GetConfig(configID primitive.ObjectID) *Config {
 	filter := bson.M{"_id": configID}
-	return c.database.Collection("config").FindOne(c.defaultContext, filter)
+	var config Config
+	c.database.Collection("config").FindOne(c.defaultContext, filter).Decode(config)
+	return &config
 }
 
-func (c *Client) GetConfigFromDomain(domain string) *mongo.SingleResult {
+func (c *Client) GetConfigFromDomain(domain string) *Config {
 	filter := bson.M{"domain": domain}
-	return c.database.Collection("config").FindOne(c.defaultContext, filter)
+	var config Config
+	c.database.Collection("config").FindOne(c.defaultContext, filter).Decode(&config)
+	return &config
 }
 
 type CacheMeta struct {

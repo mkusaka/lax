@@ -6,11 +6,13 @@ The proxy server, which written in go. (lax settings, work powerful.)
   - manage data:
     - customers configuration (proxy settings)
     - cache entity
+    - auth info for primary & edge server communication
 - primary: manager of edge server. manage data for customer
   - manage data:
     - customers information
       - auth setting
       - cash setting etc...
+    - auth info for primary & edge server communication
     - customers configuration
     - edge server's working information at that time only (all log information store to another db, like big query)
       - cache purge processing

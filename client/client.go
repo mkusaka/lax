@@ -42,10 +42,19 @@ func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	proxyURL := GenerateURL(request, config.ProxyDomain, proxyPath)
+	fmt.Printf("proxy url: %s \n", proxyURL)
+
+	key := config.Key(currentSchema(request), request.RequestURI)
+
+	cacheMeta := dbClient.GetCacheMeta(config.ID, key)
+
+	var cache *db.CacheEntity
+	if cacheMeta != nil && !cacheMeta.IsExpired() {
+		cache = dbClient.GetCacheEntity(cacheMeta.ID)
+		return db.GenerateResponseFromCache(cache)
+	}
 	// fetch cache from db. key: proxyURL/method/vary header or something user defined
 	// if cache exists & not error response, construct http.response & return it.
-
-	fmt.Printf("proxy url: %s \n", proxyURL)
 
 	req, err := http.NewRequest(request.Method, proxyURL, request.Body)
 	if err != nil {
@@ -62,11 +71,15 @@ func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
 	return res, err
 }
 
-func GenerateURL(request *http.Request, proxyDomain, proxyPath string) string {
-	schema := "http"
+func currentSchema(request *http.Request) string {
 	if request.TLS != nil {
-		schema = "https"
+		return "https"
 	}
+	return "http"
+}
+
+func GenerateURL(request *http.Request, proxyDomain, proxyPath string) string {
+	schema := currentSchema(request)
 
 	return schema + "://" + proxyDomain + proxyPath
 }

@@ -3,12 +3,15 @@ package db
 import (
 	"context"
 	"errors"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mkusaka/lax/utils"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -230,11 +233,26 @@ func (r *Rules) ProxyPath(path string) (string, error) {
 type Config struct {
 	ID             primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	TimeMeta       TimeMeta           `bson:"time_meta" json:"time_meta"`
-	CustomerID     primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field index
-	Domain         string             `bson:"domain" json:"domain"`           // TODO: make this field uniq index
+	CustomerID     primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field's index
+	Domain         string             `bson:"domain" json:"domain"`           // TODO: make this field's uniq index
 	ProxyDomain    string             `bson:"proxy_domain" json:"proxy_domain"`
 	CacheKeyConfig `bson:"cache_key_config" json:"cache_key_config"`
 	Rules          `bson:"rules" json:"rules"`
+}
+
+func (c *Config) RequestURL(schema, path string) string {
+	return schema + "://" + c.Domain + path
+}
+
+func (c *Config) Key(schema, path string) string {
+	keys := c.HeaderKeys
+	sort.Slice(keys, func(i, j int) bool {
+		return true
+	})
+	if c.CacheKeyConfig.UseURL {
+		keys = append(keys, c.RequestURL(schema, path))
+	}
+	return utils.Key(keys)
 }
 
 func (c *Client) NewConfig(customer *Customer, domain string, proxyDomain string, cacheKeyConfig *CacheKeyConfig, rules *Rules) *Config {
@@ -280,6 +298,16 @@ type CacheMeta struct {
 	Expire   time.Time          `bson:"expire" json:"expire"` // for stale-if-error control, hold expire time
 }
 
+func (c *Client) GetCacheMeta(configID primitive.ObjectID, cacheKey string) *CacheMeta {
+	filter := bson.M{
+		"config_id": configID,
+		"cache_key": cacheKey,
+	}
+	var cacheMeta CacheMeta
+	c.database.Collection("cache_meta").FindOne(c.defaultContext, filter).Decode(&cacheMeta)
+	return &cacheMeta
+}
+
 /**
  * @return current time is equal or after expire date, returns true.
  */
@@ -304,10 +332,18 @@ type CacheEntity struct {
 	Body    []byte              `json:"body"`
 }
 
-func (c *Client) FetchCache(key string) {
-	filter := bson.M{"key": key}
-	// TODO: make model package and use it.
-	c.database.Collection("cache_entity").FindOne(c.defaultContext, filter)
+func (c *Client) GetCacheEntity(metaID primitive.ObjectID) *CacheEntity {
+	filter := bson.M{"meta_id": metaID}
+	var entity CacheEntity
+	c.database.Collection("cache_entity").FindOne(c.defaultContext, filter).Decode(&entity)
+	return &entity
+}
+
+func GenerateResponseFromCache(cache *CacheEntity) (*http.Response, error) {
+	return &http.Response{
+		Header: cache.Headers,
+		Body:   io.Closer, // TODO: get response body from []bytes
+	}, nil
 }
 
 // you should check expire before cache

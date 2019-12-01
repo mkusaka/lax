@@ -4,7 +4,6 @@ import (
 	"context"
 	"bytes"
 	"errors"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"

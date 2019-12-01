@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"bytes"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -342,7 +343,7 @@ func (c *Client) GetCacheEntity(metaID primitive.ObjectID) *CacheEntity {
 func GenerateResponseFromCache(cache *CacheEntity) (*http.Response, error) {
 	return &http.Response{
 		Header: cache.Headers,
-		Body:   io.Closer, // TODO: get response body from []bytes
+		Body:   ioutil.NopCloser(bytes.NewReader(cache.Body)),
 	}, nil
 }
 

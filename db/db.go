@@ -1,13 +1,15 @@
 package db
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"errors"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,10 +124,12 @@ func NewCacheKeyConfig(headerKeys []string, useURL bool) *CacheKeyConfig {
 // url proxy rule. if request path matches priority high Matcher, then proxy to Priority.
 // Marcher support only all matcher suffix like foo/bar/* matches under foo/bar/ path.
 type Rule struct {
-	Macher    string `bson:"macher" json:"macher"`
-	Matched   string `bson:"mached" json:"matched"`
-	Priority  int    `bson:"priority" json:"priority"`
-	IsDefault bool   `bson:"is_default" json:"is_default"`
+	Macher    string    `bson:"macher" json:"macher"`
+	Matched   string    `bson:"mached" json:"matched"`
+	Priority  int       `bson:"priority" json:"priority"`
+	IsDefault bool      `bson:"is_default" json:"is_default"`
+	ExpireAt  time.Time `bson:"expire_at" json:"expire_at"`
+	Method    string    `bson:"method" json:"method"` // http methods
 }
 
 func IsGeneralPattern(s string) bool {
@@ -211,7 +215,7 @@ func (r *Rules) HighPriority() Rules {
 }
 
 // returns matched rule. if there is no match rule, returns default rule or empty rule struct.
-func (r *Rules) MatchRule(path string) *Rule {
+func (r *Rules) MatchRule(path, method string) *Rule {
 	sortedRules := r.HighPriority()
 	defaultRule := Rule{}
 	for _, rule := range sortedRules {
@@ -222,37 +226,60 @@ func (r *Rules) MatchRule(path string) *Rule {
 		}
 	}
 
+	// TODO: default proxy to origin same path & not cache.
 	return &defaultRule
 }
 
-func (r *Rules) ProxyPath(path string) (string, error) {
-	return r.MatchRule(path).RuledPath(path)
+func (r *Rules) ProxyPath(path, method string) (string, error) {
+	return r.MatchRule(path, method).RuledPath(path)
 }
 
 // create each domain. manage proxy rule via Rule struct.
 type Config struct {
-	ID             primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
-	TimeMeta       TimeMeta           `bson:"time_meta" json:"time_meta"`
-	CustomerID     primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field's index
-	Domain         string             `bson:"domain" json:"domain"`           // TODO: make this field's uniq index
-	ProxyDomain    string             `bson:"proxy_domain" json:"proxy_domain"`
-	CacheKeyConfig `bson:"cache_key_config" json:"cache_key_config"`
-	Rules          `bson:"rules" json:"rules"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	TimeMeta        TimeMeta           `bson:"time_meta" json:"time_meta"`
+	CustomerID      primitive.ObjectID `bson:"customer_id" json:"customer_id"` // TODO: make this field's index
+	Domain          string             `bson:"domain" json:"domain"`           // TODO: make this field's uniq index
+	ProxyDomain     string             `bson:"proxy_domain" json:"proxy_domain"`
+	DefaultExpireAt time.Time          `bson:"default_expire_at" json:"default_expire_at"`
+	CacheKeyConfig  `bson:"cache_key_config" json:"cache_key_config"`
+	Rules           `bson:"rules" json:"rules"`
 }
 
 func (c *Config) RequestURL(schema, path string) string {
 	return schema + "://" + c.Domain + path
 }
 
-func (c *Config) Key(schema, path string) string {
+func (c *Config) Key(schema, path, method string) string {
 	keys := c.HeaderKeys
 	sort.Slice(keys, func(i, j int) bool {
 		return true
 	})
+	keys = append(keys, method)
 	if c.CacheKeyConfig.UseURL {
 		keys = append(keys, c.RequestURL(schema, path))
 	}
 	return utils.Key(keys)
+}
+
+func (c *Config) ExpireAt(rule *Rule) time.Time {
+	if rule.ExpireAt != time.Now() {
+		return rule.ExpireAt
+	} else if c.DefaultExpireAt != time.Now() {
+		return rule.ExpireAt
+	}
+
+	// TODO: service default time to be configable for service provider.
+	// service provider settings default store to Environment Variables.
+	// Default Expire duration
+	// read each time, so we reconfigure it easily
+	defaultCacheDuration, err := strconv.Atoi(os.Getenv("DEFAULT_CACHE_DURATION"))
+	if err != nil {
+		// TODO: log into primary server
+		// as default, do not cache
+		defaultCacheDuration = -1
+	}
+	return time.Now().Add(time.Duration(defaultCacheDuration) * time.Millisecond)
 }
 
 func (c *Client) NewConfig(customer *Customer, domain string, proxyDomain string, cacheKeyConfig *CacheKeyConfig, rules *Rules) *Config {
@@ -295,7 +322,40 @@ type CacheMeta struct {
 	EntityID primitive.ObjectID `bson:"entity_id" json:"entity_id"`
 	ConfigID primitive.ObjectID `bson:"config_id" json:"config_id"`
 	CacheKey string             `bson:"cache_key" json:"cache_key"`
-	Expire   time.Time          `bson:"expire" json:"expire"` // for stale-if-error control, hold expire time
+	ExpireAt time.Time          `bson:"expire" json:"expire"` // for stale-if-error control, hold expire time
+}
+
+func NewCacheMeta(config *Config, rule *Rule, cacheKey string) *CacheMeta {
+	return &CacheMeta{
+		ID:       primitive.NewObjectID(),
+		TimeMeta: *NewTimeMeta(),
+		ConfigID: config.ID,
+		CacheKey: cacheKey,
+		ExpireAt: config.ExpireAt(*rule),
+	}
+}
+
+func (c *Client) SaveCacheMeta(cacheMeta *CacheMeta) *CacheMeta {
+	_, err := c.database.Collection("cache_meta").InsertOne(c.defaultContext, cacheMeta)
+	if err != nil {
+		// TODO: error log to primary server
+	}
+	return cacheMeta
+}
+
+func (c *Client) UpdateCacheMeta(cacheMetaID primitive.ObjectID, entity *CacheEntity, expireAt time.Time) *CacheMeta {
+	filter := bson.M{"_id": cacheMetaID}
+	update := bson.M{
+		"$set": bson.M{
+			"entity_id": entity.ID,
+			"expire_at": expireAt,
+			"time_meta": bson.M{"updated_at": time.Now()},
+		},
+	}
+	result := c.database.Collection("cache_meta").FindOneAndUpdate(c.defaultContext, filter, update)
+	var cacheMeta CacheMeta
+	result.Decode(&cacheMeta)
+	return &cacheMeta
 }
 
 func (c *Client) GetCacheMeta(configID primitive.ObjectID, cacheKey string) *CacheMeta {
@@ -313,23 +373,23 @@ func (c *Client) GetCacheMeta(configID primitive.ObjectID, cacheKey string) *Cac
  */
 func (c *CacheMeta) IsExpired() bool {
 	currentTime := time.Now()
-	return currentTime.After(c.Expire) || currentTime.Equal(c.Expire)
+	return currentTime.After(c.ExpireAt) || currentTime.Equal(c.ExpireAt)
 }
 
 func (c *CacheMeta) IsExpiredAt(at time.Time) bool {
-	return at.After(c.Expire) || at.Equal(c.Expire)
+	return at.After(c.ExpireAt) || at.Equal(c.ExpireAt)
 }
 
 type CacheEntity struct {
-	ID     primitive.ObjectID `json:"_id,omitempty"`
-	MetaID primitive.ObjectID `json:"meta_id"`
+	ID     primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
+	MetaID primitive.ObjectID `bson:"meta_id" json:"meta_id"`
 	// TODO: delete expire cache via mongodb ttl https://docs.mongodb.com/manual/core/index-ttl/
 	//   - idea:
 	//       - set ttl to cacheentity collection(with expire after second 0 & index: ttl)
 	//       - set expire time calculated from its ttl
 	// expireAt     time.Time           `json:"expire_at"`
-	Headers map[string][]string `json:"headers"`
-	Body    []byte              `json:"body"`
+	Headers map[string][]string `bson:"headers" json:"headers"`
+	Body    []byte              `bson:"body" json:"body"`
 }
 
 func (c *Client) GetCacheEntity(metaID primitive.ObjectID) *CacheEntity {
@@ -339,6 +399,7 @@ func (c *Client) GetCacheEntity(metaID primitive.ObjectID) *CacheEntity {
 	return &entity
 }
 
+// TODO: move to service layer
 func GenerateResponseFromCache(cache *CacheEntity) (*http.Response, error) {
 	return &http.Response{
 		Header: cache.Headers,
@@ -347,39 +408,43 @@ func GenerateResponseFromCache(cache *CacheEntity) (*http.Response, error) {
 }
 
 // you should check expire before cache
-func (c *Client) StoreCache(meta CacheMeta, r *http.Response, expireAt time.Time) {
+func (c *Client) CreateCache(cacheMeta *CacheMeta, r *http.Response) *CacheEntity {
 	// cacheMeta := c.database.Collection("cache").FindOne(c.defaultContext, filter)
 	// cacheMeta.Decode(&meta)
-	entityID := meta.EntityID
-	entityFilter := bson.M{"_id": entityID}
-	entity := EntityFromResponse(r, entityID)
-	// upsert entity
-	result, err := c.database.Collection("cache_entity").UpdateOne(c.defaultContext, entityFilter, entity)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if meta.EntityID != result.UpsertedID {
-		// update meta entity id if created new cache entity
-		// FIXME: move to worker?
-		// filter := bson.M{"_id": meta.ID}
-		// c.database.Collection("cache").UpdateOne(c.defaultContext, filter, update)
-	}
-}
-
-func EntityFromResponse(r *http.Response, entityID primitive.ObjectID) *CacheEntity {
 	entity := CacheEntity{
+		ID:      primitive.NewObjectID(),
+		MetaID:  cacheMeta.ID,
 		Headers: r.Header,
 	}
 	if r.Body != nil {
-		defer r.Body.Close()
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
+			// TODO: send fail log to primary
 			log.Fatal(err)
 		}
 		entity.Body = body
 	}
 
-	// TODO: Store MetaID
+	// insert entity
+	_, err := c.database.Collection("cache_entity").InsertOne(c.defaultContext, entity)
+	if err != nil {
+		// TODO: send fail log to primary
+		log.Fatal(err)
+	}
+
 	return &entity
+}
+
+func (c *Client) UpdateCache(cacheMeta CacheMeta, r *http.Response) *CacheEntity {
+	filter := bson.M{"_id": cacheMeta.EntityID}
+	update := bson.M{
+		"$set": bson.M{
+			"headers": r.Header,
+			"body":    r.Body,
+		},
+	}
+	result := c.database.Collection("cache_entity").FindOneAndUpdate(c.defaultContext, filter, update)
+	var cacheEntity CacheEntity
+	result.Decode(&cacheEntity)
+	return &cacheEntity
 }

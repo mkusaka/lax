@@ -27,6 +27,7 @@ func proxyHander(w http.ResponseWriter, r *http.Request) {
 		// TODO: log store from worker
 		// TODO: error handling. add retry function
 		// TODO: send error report to primary server
+		// TODO: make error page
 		http.Error(w, http.StatusText(http.StatusBadRequest)+" :"+err.Error(), http.StatusBadRequest)
 		return
 	}

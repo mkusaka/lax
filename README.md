@@ -54,6 +54,8 @@ this server provide below
 - hard purge
   - delete entire data
   - execute from worker
+- expire from each customer cache
+- expire from each path (from rule?)
 
 ## configuration
 - whitelist ip & blacklist ip

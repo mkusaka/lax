@@ -133,7 +133,7 @@ func (r *Rule) IsGeneralMatcherPattern() bool {
 	return IsGeneralPattern(r.Macher)
 }
 
-func (r *Rule) IsGenrarlMatchedPattern() bool {
+func (r *Rule) IsGeneralMatchedPattern() bool {
 	return IsGeneralPattern(r.Matched)
 }
 
@@ -167,7 +167,7 @@ func (r *Rule) RuledPath(path string) (ProxyURL, error) {
 		return "", errors.New("invalid rule pattern")
 	}
 
-	if !r.IsGenrarlMatchedPattern() {
+	if !r.IsGeneralMatchedPattern() {
 		return r.Matched, nil
 	}
 

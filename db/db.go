@@ -65,7 +65,7 @@ type Customer struct {
 	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	TimeMeta TimeMeta           `bson:"time_meta" json:"time_meta"`
 
-	// for primary server pluggable, this field just declare as string.
+	// to primary server pluggable, this field just declare as string.
 	PrimaryCustomerID string `bson:"primary_customer_id" json:"primary_customer_id"`
 }
 
@@ -311,7 +311,7 @@ func (c *Client) FetchCache(key string) {
 }
 
 // you should check expire before cache
-func (c *Client) StoreCache(meta CacheMeta, r *http.Response, expire_at time.Time) {
+func (c *Client) StoreCache(meta CacheMeta, r *http.Response, expireAt time.Time) {
 	// cacheMeta := c.database.Collection("cache").FindOne(c.defaultContext, filter)
 	// cacheMeta.Decode(&meta)
 	entityID := meta.EntityID
@@ -326,7 +326,6 @@ func (c *Client) StoreCache(meta CacheMeta, r *http.Response, expire_at time.Tim
 	if meta.EntityID != result.UpsertedID {
 		// update meta entity id if created new cache entity
 		// FIXME: move to worker?
-		// ここでmetaのidを持ってきたいが、取れないのだろうか？
 		// filter := bson.M{"_id": meta.ID}
 		// c.database.Collection("cache").UpdateOne(c.defaultContext, filter, update)
 	}

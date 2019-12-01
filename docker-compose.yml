@@ -1,0 +1,19 @@
+version: "3.3"
+
+services:
+  db:
+    image: mongo:4.2.1-bionic
+    ports:
+      - "27017:27017"
+    volumes:
+      - "mongodbdata:/data/db"
+    # environment:
+    #   MONGO_INITDB_ROOT_USERNAME: root
+    #   MONGO_INITDB_ROOT_PASSWORD: example
+    # to avoid oom killer
+    command: --wiredTigerCacheSizeGB 3
+    # should we make mongodb cluster?
+    # REF: https://medium.com/faun/managing-mongodb-on-docker-with-docker-compose-26bf8a0bbae3
+
+volumes:
+  mongodbdata:

@@ -96,17 +96,20 @@ func (c *Client) UpdateCustomer(primaryCustomerID string, updatePrimaryCustomerI
 	return c.database.Collection("customer").UpdateOne(c.defaultContext, filter, update)
 }
 
+// ATTENTION: think called from worker? only cache called from worker?
 func (c *Client) DeleteCustomer(primaryCustomerID string) (*mongo.DeleteResult, error) {
+	customer := c.GetCustomer(primaryCustomerID)
+	c.DeleteConfigFromCustomer(customer.ID)
 	filter := bson.M{"primary_customer_id": primaryCustomerID}
 	return c.database.Collection("customer").DeleteOne(c.defaultContext, filter)
 }
 
-func (c *Client) GetCustomer(primaryCustomerID string) Customer {
+func (c *Client) GetCustomer(primaryCustomerID string) *Customer {
 	var customer Customer
 	filter := bson.M{"primary_customer_id": primaryCustomerID}
 	result := c.database.Collection("customer").FindOne(c.defaultContext, filter)
 	result.Decode(&customer)
-	return customer
+	return &customer
 }
 
 type CacheKeyConfig struct {
@@ -316,6 +319,36 @@ func (c *Client) GetConfigFromDomain(domain string) (*Config, error) {
 	return &config, nil
 }
 
+func (c *Client) GetConfigFromCustomer(customerID primitive.ObjectID) *[]Config {
+	filter := bson.M{"customer_id": customerID}
+	var configs []Config
+	result, err := c.database.Collection("config").Find(c.defaultContext, filter)
+	if err != nil {
+		// TODO: log into primary server
+	}
+	result.Decode(&configs)
+	return &configs
+}
+
+// ATTENTION: must called from worker
+func (c *Client) DeleteConfigFromCustomer(customerID primitive.ObjectID) {
+	configs := c.GetConfigFromCustomer(customerID)
+	configIDs := []primitive.ObjectID{}
+	for _, config := range *configs {
+		configIDs = append(configIDs, config.ID)
+	}
+	c.DeleteCacheMetaFromConfig(configIDs)
+	filter := bson.M{
+		"_id": bson.M{
+			"$in": configIDs,
+		},
+	}
+	_, err := c.database.Collection("config").DeleteMany(c.defaultContext, filter)
+	if err != nil {
+		// TODO: log into primary server
+	}
+}
+
 type CacheMeta struct {
 	ID       primitive.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	TimeMeta TimeMeta           `bson:"time_meta" json:"time_meta"`
@@ -331,7 +364,7 @@ func NewCacheMeta(config *Config, rule *Rule, cacheKey string) *CacheMeta {
 		TimeMeta: *NewTimeMeta(),
 		ConfigID: config.ID,
 		CacheKey: cacheKey,
-		ExpireAt: config.ExpireAt(*rule),
+		ExpireAt: config.ExpireAt(rule),
 	}
 }
 
@@ -366,6 +399,31 @@ func (c *Client) GetCacheMeta(configID primitive.ObjectID, cacheKey string) *Cac
 	var cacheMeta CacheMeta
 	c.database.Collection("cache_meta").FindOne(c.defaultContext, filter).Decode(&cacheMeta)
 	return &cacheMeta
+}
+
+func (c *Client) GetCacheMetaFromConfigIDs(configIDs []primitive.ObjectID) *[]CacheMeta {
+	filter := bson.M{"config_id": bson.M{"$in": configIDs}}
+	var cacheMetas []CacheMeta
+	result, err := c.database.Collection("cache_meta").Find(c.defaultContext, filter)
+	if err != nil {
+		// TODO: log into primary server
+	}
+	result.Decode(&cacheMetas)
+	return &cacheMetas
+}
+
+func (c *Client) DeleteCacheMetaFromConfig(configIDs []primitive.ObjectID) {
+	targetCacheMetas := c.GetCacheMetaFromConfigIDs(configIDs)
+	targetEntities := []primitive.ObjectID{}
+	targetCacheMetaIDs := []primitive.ObjectID{}
+	for _, meta := range *targetCacheMetas {
+		targetEntities = append(targetEntities, meta.EntityID)
+		targetCacheMetaIDs = append(targetCacheMetaIDs, meta.ID)
+	}
+	c.DeleteCacheFromEntityIDs(targetEntities)
+	filter := bson.M{"_id": bson.M{"$in": targetCacheMetaIDs}}
+
+	c.database.Collection("cache_meta").DeleteMany(c.defaultContext, filter)
 }
 
 /**
@@ -447,4 +505,10 @@ func (c *Client) UpdateCache(cacheMeta CacheMeta, r *http.Response) *CacheEntity
 	var cacheEntity CacheEntity
 	result.Decode(&cacheEntity)
 	return &cacheEntity
+}
+
+// ATTENTION: must called from worker
+func (c *Client) DeleteCacheFromEntityIDs(cacheEntityIDs []primitive.ObjectID) {
+	filter := bson.M{"_id": bson.M{"$in": cacheEntityIDs}}
+	c.database.Collection("cache_entity").DeleteMany(c.defaultContext, filter)
 }

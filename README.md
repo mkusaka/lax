@@ -7,7 +7,7 @@ The proxy server, which written in go. (lax settings, work powerful.)
     - customers configuration (proxy settings)
     - cache entity
     - auth info for primary & edge server communication
-- primary: manager of edge server. manage data for customer
+- controller: manager of edge server. manage data for customer
   - manage data:
     - customers information
       - auth setting
@@ -15,10 +15,14 @@ The proxy server, which written in go. (lax settings, work powerful.)
     - auth info for primary & edge server communication
     - customers configuration
     - edge server's working information at that time only (all log information store to another db, like big query)
-      - cache purge processing
+      - cache purge processing status
       - edge server deployment processing etc..
 
-edge server and primary server communication want to implement by [grpc](https://github.com/grpc/grpc-go)
+edge server and primary server communication will implemented by [grpc](https://github.com/grpc/grpc-go).
+
+- optimized dns: optimized dns server. this server returns nearest client server ip address
+  - manage data:
+    - ip address and location data
 
 ## edge
 ### server
@@ -37,8 +41,9 @@ edge server and primary server communication want to implement by [grpc](https:/
 ### execute codes
 - (want to use) [lucet](https://github.com/bytecodealliance/lucet)
 
-## primary
-simple setting manage server.
+## controller
+simple server which management edge server.
+
 this server provide below
 - manage customer which use cache proxy.
 - manage setting request from customer, cache settings, purge request. And proxy it to edge server.
@@ -46,8 +51,15 @@ this server provide below
   - want to provide like blue green deployment.
 - log aggregation hub and store and proxy.
 
+### data store
+- mongodb
+
+## optimized dns server
+dns server,  returns nearlest(by geolocation which infer by ip address) server ip.
+
 # operation
 ## cache store
+- eager cache store will support
 
 ## cache purge
 - light purge
@@ -56,6 +68,8 @@ this server provide below
 - hard purge
   - delete entire data
   - execute from worker
+- expire from each customer cache
+- expire from each path (from rule?)
 
 ## configuration
 - whitelist ip & blacklist ip
@@ -71,17 +85,17 @@ this server provide below
 - create each url or its pattern
 - manage hit url to origin url correspondence rule
 
-## CacheMeta
-- create each Cache
-- belongs to one Config
-- has one CacheEntity
-- manage Cache expire time, CacheKey, or some.
+### Rule
+- like AWS cloudfront's behavior
+- manage path pattern & proxy to specific path
+- embedded to config document
 
-## CacheEntity
-- create each Cache
-- belongs to CacheMeta
-- CacheEntity
-- (will) manage expire time via mongodb ttl
+## Cache
+- belongs to one Config
+- manage Cache expire time, CacheKey
+- manage expire time via mongodb ttl or use gridfs for support large file.
+  - ttl → cache size will limit by 16MB of document limitation of mongodb
+  - gridfs → no cache limit. but ttl cannot work well, so we self implement cache deletion algorithem
 
 # ref
 https://blog.cloudflare.com/cloudflare-architecture-and-how-bpf-eats-the-world/

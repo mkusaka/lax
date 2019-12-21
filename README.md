@@ -55,7 +55,7 @@ this server provide below
 - mongodb
 
 ## optimized dns server
-dns server,  returns nearlest(by geolocation which infer by ip address) server ip.
+dns server. returns nearlest(by geolocation which infer by ip address) server ip.
 
 # operation
 ## cache store
@@ -96,6 +96,9 @@ dns server,  returns nearlest(by geolocation which infer by ip address) server i
 - manage expire time via mongodb ttl or use gridfs for support large file.
   - ttl → cache size will limit by 16MB of document limitation of mongodb
   - gridfs → no cache limit. but ttl cannot work well, so we self implement cache deletion algorithem
+
+# image
+![lax](https://user-images.githubusercontent.com/24956031/71309612-4a8c1e80-244d-11ea-84a0-ca31f48dcb35.png)
 
 # ref
 https://blog.cloudflare.com/cloudflare-architecture-and-how-bpf-eats-the-world/

@@ -2,7 +2,16 @@
 The proxy server, which written in go. (lax settings, work powerful.)
 
 # component
-- edge: edge server, distributed around the world
+- core: core proxy only pluggable server. core has lifesycle for plugin.
+  - plugins: plugin which add useful function to core. such as config save location, cache, waf, sandbox execution code env or some else. may will be written in golang.
+  - request lifecycle: able to add additional process for each request timing.
+    - on proxy viewer request from viewer
+    - on proxy request to origin
+    - on proxy received request from origin
+    - on proxy response request to viewer
+  - core server lifecycle:
+    - on launch: eg, load settings infomation as configured.
+- edge: edge server, distributed around the world. based on core & some plugin, such as cache
   - manage data:
     - customers configuration (proxy settings)
     - cache entity
@@ -18,7 +27,7 @@ The proxy server, which written in go. (lax settings, work powerful.)
       - cache purge processing status
       - edge server deployment processing etc..
 
-edge server and primary server communication will implemented by [grpc](https://github.com/grpc/grpc-go).
+edge server and primary server communication will implemented by [grpc](https://github.com/grpc/grpc-go) (not yet).
 
 - optimized dns: optimized dns server. this server returns nearest client server ip address
   - manage data:
@@ -30,6 +39,8 @@ edge server and primary server communication will implemented by [grpc](https://
   - handle request from client & proxy to origin or response request
 - operation server
   - handle request from service provider(cdn itself or content owner) & purge or update settings
+- manage server
+  - may use k8s for deployment, watch server & container metrics.
 
 ### worker
 - operation worker

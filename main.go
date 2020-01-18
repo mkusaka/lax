@@ -1,11 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/mkusaka/lax/client"
@@ -14,53 +12,44 @@ import (
 
 func main() {
 	// TODO: allow auto restart like HUP USR2, or http request like /restart
-	var addr string = ""
-	var portHttp uint = 10080
-	var portHttps uint = 10443
-	var readTimeOut time.Duration = 10
-	var writeTimeOut time.Duration = 10
-	var maxHeaderSize int = 1 << 20
-	var keyFilePath string = "./key.pem"
-	var certFilePath string = "./cert.pem"
+	addr := ""
+	portHttp := uint(10080)
+	portHttps := uint(10443)
+	readTimeOut := time.Duration(10)
+	writeTimeOut := time.Duration(10)
+	// 1 << 20 from https://golang.org/pkg/net/http/
+	maxHeaderSize := 1 << 20
+	keyFilePath := "./key.pem"
+	certFilePath := "./cert.pem"
 
+	serverErrorChan := make(chan error)
 	httpServer := http_server_wrapper.NewHttpServer(
 		addr,
 		portHttp,
 		readTimeOut,
 		writeTimeOut,
 		maxHeaderSize,
+		serverErrorChan,
 	)
-	httpsServer := http_server_wrapper.NewHttpServer(
+
+	httpsServer := http_server_wrapper.NewHttpsServer(
 		addr,
 		portHttps,
 		readTimeOut,
 		writeTimeOut,
 		maxHeaderSize,
+		serverErrorChan,
+		certFilePath,
+		keyFilePath,
 	)
-	http_server_wrapper.AddHandler("/", http.HandlerFunc(proxyHander))
+	http_server_wrapper.Handler("/", http.HandlerFunc(proxyHander))
 
 	go httpServer.ListenAndServe()
-	fmt.Printf("served at localhost:%v\n", portHttp)
 
-	go httpsServer.ListenAndServeTLS(certFilePath, keyFilePath)
-	fmt.Printf("served at localhost:%v\n", portHttps)
-
-	select {
-	case httpServerErr := <-httpServer.FinishChan:
-		if httpServerErr != nil {
-			fmt.Printf(
-				"Http server goroutine stoped with error. %v\n",
-				httpServerErr)
-			os.Exit(1)
-		}
-	case httpsServerErr := <-httpsServer.FinishChan:
-		if httpsServerErr != nil {
-			fmt.Printf(
-				"Https server goroutine stoped with error. %v\n",
-				httpsServerErr)
-			os.Exit(1)
-		}
-	}
+	go httpsServer.ListenAndServe()
+	// TODO: graceful shutdown
+	// if http or https server crashed, then the other server have to graceful shutdown
+	<-serverErrorChan
 }
 
 func proxyHander(w http.ResponseWriter, r *http.Request) {

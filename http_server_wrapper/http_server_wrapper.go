@@ -17,60 +17,95 @@ import (
  */
 
 type HttpServer struct {
-	server     *http.Server
+	server *http.Server
+	useTLS bool
+	// channel for manage all server goroutine error.
 	FinishChan chan error
 	logger     *log.Logger
+	certFile   string
+	keyFile    string
 }
-
-/*
- * Constants
- */
 
 /*
  * Functions
  */
-
-func AddHandler(pathStr string, handler http.Handler) {
+func Handler(pathStr string, handler http.Handler) {
 	http.Handle(pathStr, handler)
 }
 
 func (httpServer *HttpServer) ListenAndServe() {
-	err := httpServer.server.ListenAndServe()
+	var err error
+
+	httpServer.logger.Printf("served at %v\n", httpServer.server.Addr)
+	if httpServer.useTLS {
+		err = httpServer.server.ListenAndServe()
+	} else {
+		err = httpServer.server.ListenAndServeTLS(httpServer.certFile, httpServer.keyFile)
+	}
+	httpServer.logger.Printf("Http server goroutine stoped with error. %v\n", err)
 	httpServer.FinishChan <- err
 }
 
-func (httpsServer *HttpServer) ListenAndServeTLS(certFile string, keyFile string) {
-	err := httpsServer.server.ListenAndServeTLS(certFile, keyFile)
-	httpsServer.FinishChan <- err
-}
-
 func NewHttpServer(
-	addrStr string,
+	addr string,
 	port uint,
 	readTimeoutSec time.Duration,
 	writeTimeoutSec time.Duration,
 	maxHeaderBytes int,
+	finishChan chan error,
 ) *HttpServer {
-	// Join addrStr and port by ":"
-	addrAndPortStr := fmt.Sprintf("%v:%v", addrStr, port)
+	addrAndPort := fmt.Sprintf("%v:%v", addr, port)
 
-	// Create pointer of HttpServer structure.
-	httpServer := new(HttpServer)
+	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 
-	// Create pointer of inner http.Server
-	httpServer.server = &http.Server{
-		Addr:           addrAndPortStr,
+	server := &http.Server{
+		Addr:           addrAndPort,
 		ReadTimeout:    readTimeoutSec * time.Second,
 		WriteTimeout:   writeTimeoutSec * time.Second,
 		MaxHeaderBytes: maxHeaderBytes,
+		ErrorLog:       logger,
 	}
 
-	// Create channel
-	httpServer.FinishChan = make(chan error)
+	httpServer := &HttpServer{
+		server:     server,
+		logger:     logger,
+		FinishChan: finishChan,
+		useTLS:     false,
+	}
 
-	// Create logger
-	httpServer.logger = log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
-	httpServer.server.ErrorLog = httpServer.logger
+	return httpServer
+}
+
+func NewHttpsServer(
+	addr string,
+	port uint,
+	readTimeoutSec time.Duration,
+	writeTimeoutSec time.Duration,
+	maxHeaderBytes int,
+	finishChan chan error,
+	certFilePath string,
+	keyFilePath string,
+) *HttpServer {
+	addrAndPort := fmt.Sprintf("%v:%v", addr, port)
+
+	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
+
+	server := &http.Server{
+		Addr:           addrAndPort,
+		ReadTimeout:    readTimeoutSec * time.Second,
+		WriteTimeout:   writeTimeoutSec * time.Second,
+		MaxHeaderBytes: maxHeaderBytes,
+		ErrorLog:       logger,
+	}
+
+	httpServer := &HttpServer{
+		server:     server,
+		logger:     logger,
+		FinishChan: finishChan,
+		certFile:   certFilePath,
+		keyFile:    keyFilePath,
+		useTLS:     true,
+	}
 
 	return httpServer
 }

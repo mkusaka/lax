@@ -38,9 +38,9 @@ func (httpServer *HttpServer) ListenAndServe() {
 
 	httpServer.logger.Printf("served at %v\n", httpServer.server.Addr)
 	if httpServer.useTLS {
-		err = httpServer.server.ListenAndServe()
-	} else {
 		err = httpServer.server.ListenAndServeTLS(httpServer.certFile, httpServer.keyFile)
+	} else {
+		err = httpServer.server.ListenAndServe()
 	}
 	httpServer.logger.Printf("Http server goroutine stoped with error. %v\n", err)
 	httpServer.FinishChan <- err

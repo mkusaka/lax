@@ -6,11 +6,7 @@ import (
 	"log"
 	"net/http"
 	"time"
-
-	"github.com/mkusaka/lax/db"
 )
-
-var dbClient = db.NewClient(1000 * time.Millisecond)
 
 type Client struct {
 	client *http.Client
@@ -30,18 +26,7 @@ func NewClient(timeoutSecond time.Duration) *Client {
 
 func (c *Client) ProxyRequest(request *http.Request) (*http.Response, error) {
 	// URL.String not returns valid url...?
-	config, err := dbClient.GetConfigFromDomain(request.Host)
-	if err != nil {
-		return nil, err
-	}
-
-	proxyPath, err := config.ProxyPath(request.RequestURI)
-	// proxyPath := "posts"
-
-	if err != nil {
-		return nil, err
-	}
-	proxyURL := GenerateURL(request, config.ProxyDomain, proxyPath)
+	proxyURL := GenerateURL(request, request.Host, request.RequestURI)
 	// fetch cache from db. key: proxyURL/method/vary header or something user defined
 	// if cache exists & not error response, construct http.response & return it.
 
